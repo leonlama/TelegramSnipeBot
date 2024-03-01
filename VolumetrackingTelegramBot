@@ -1,0 +1,52 @@
+import asyncio
+import requests
+from telegram import Bot
+
+#Start the Telegram Bot with a Message "API connnected successfully":
+TELEGRAM_BOT_TOKEN = '6926415997:AAEcie10OIcYA12pUX-cAu4yoD_AfN1R5z0'
+CHAT_ID = "-4135313692"  # Make sure this is an integer or a string that represents a number
+
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
+
+def send_telegram_message(message):
+    bot.send_message(chat_id=CHAT_ID, text=message)
+
+async def send_telegram_message(message):
+    await bot.send_message(chat_id=CHAT_ID, text=message)
+
+# To run the async function
+async def API_successfull():
+    await send_telegram_message("API connected successfully.")
+
+
+# Fetch current trading volumes
+def fetch_current_volumes():
+    api_url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd'
+    response = requests.get(api_url)
+    data = response.json()
+    volumes = {coin['id']: coin['total_volume'] for coin in data}
+    return volumes
+
+async def check_volumes_and_alert():
+    initial_volumes = fetch_current_volumes()
+    message_hey = "YO I BIMS EINS VOLUME SNIPING BOT BRUDA"
+    await send_telegram_message(message_hey)
+    while True:
+        await asyncio.sleep(3600)  # Async sleep without blocking
+        current_volumes = fetch_current_volumes()
+
+        for coin_id, initial_volume in initial_volumes.items():
+            if coin_id in current_volumes:
+                current_volume = current_volumes[coin_id]
+                volume_change = ((current_volume - initial_volume) / initial_volume) * 100
+
+                # If volume increase is over 30%, send a message
+                if volume_change > 30:
+                    message = f"🚀 {coin_id.upper()} volume pumped over {volume_change:.2f}% in the last hour!"
+                    await send_telegram_message(message)  # Send Message in Volume Pumping Coin in group chat
+
+        # Update initial volumes for the next check
+        initial_volumes = current_volumes
+
+if __name__ == "__main__":
+    asyncio.run(check_volumes_and_alert())
