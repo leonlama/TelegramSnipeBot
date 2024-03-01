@@ -1,0 +1,340 @@
+"""
+Telegram Bot automatically sending messages about pumping meme and altcoins into a group. 29.02.24 xNeo
+"""
+
+"""
+Imports for the Telegram Bot module
+"""
+from telegram import Bot
+import asyncio
+from telegram.error import TimedOut
+from telegram.ext import Updater, CommandHandler
+#from telegram.utils.request import Request
+
+"""
+Impports for the Data Fetching Function using KuCoin
+"""
+import ccxt
+from operator import itemgetter
+"""
+Imports for CoinGecko Sentiment Analysis
+"""
+from pycoingecko import CoinGeckoAPI
+import aiohttp
+
+cg = CoinGeckoAPI()
+
+# Global storage for previous coin data
+previous_coin_data = {}
+
+
+#Start the Telegram Bot with a Message "API connnected successfully":
+TELEGRAM_BOT_TOKEN = '6926415997:AAEcie10OIcYA12pUX-cAu4yoD_AfN1R5z0'
+CHAT_ID = "-4135313692"  # Make sure this is an integer or a string that represents a number
+
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
+
+async def send_telegram_message(message):
+    await bot.send_message(chat_id=CHAT_ID, text=message)
+
+# To run the async function
+async def API_successfull():
+    await send_telegram_message("API connected successfully.")
+
+#Set Interval for running Function
+async def run_task_at_interval(task, interval_seconds):
+    while True:
+        await task()
+        await asyncio.sleep(interval_seconds)
+
+"""
+Set Up Proxy:
+
+# Proxy URL
+PROXY_URL = 'socks5://127.0.0.1:1080'
+# or, for SOCKS5 proxy:
+# PROXY_URL = 'socks5://your_proxy_here:port'
+
+# Create a Request object with your proxy configuration
+request = Request(proxy_url=PROXY_URL)
+
+# Create a Bot instance with the request object
+bot = Bot(token=TOKEN, request=request)
+
+# Now, create an Updater object using the bot instance
+updater = Updater(bot=bot, use_context=True)
+
+# Example of a simple start command
+def start(update, context):
+    update.message.reply_text('Hello! I am running over a proxy.')
+
+
+updater.dispatcher.add_handler(CommandHandler('start', start))
+
+# Start the bot
+updater.start_polling()
+updater.idle()
+"""
+# Funtion to Fetch the top Movers using the KuCoinAPI:
+def fetch_top_movers():
+    exchange = ccxt.kucoin()
+    markets = exchange.load_markets()
+    tickers = exchange.fetch_tickers()
+    top_movers = []
+
+    for ticker in tickers.values():
+        symbol = ticker['symbol']
+        if symbol in markets:  # Ensure the symbol is in the loaded markets
+            percentage = ticker['percentage']  # This is the price change percentage
+            if percentage and percentage > 0:  # Filter to positive movements
+                top_movers.append((symbol, percentage))
+
+    # Sort the list of movers by percentage in descending order and return the top 10
+    top_movers.sort(key=itemgetter(1), reverse=True)
+    return top_movers[:10]
+
+#Send the Data via Telegram
+async def send_top_movers_update():
+    top_movers = fetch_top_movers()
+    message = "🚀 Top 10 Movers in the Last 24 Hours:\n"
+    message += "\n".join([f"{i + 1}. {mover[0]}: {mover[1]}%" for i, mover in enumerate(top_movers)])
+    await send_telegram_message(message)
+
+
+
+"""
+Implementing Predictive Logic for SnipeBot:
+"""
+
+def find_potential_movers(tickers, historical_data):
+    potential_movers = []
+    for ticker in tickers:
+        symbol = ticker['symbol']
+        price_data = historical_data[symbol]
+
+        # Example logic for volume spike
+        average_volume = sum([day['volume'] for day in price_data[-30:]]) / 30
+        recent_volume = price_data[-1]['volume']
+        if recent_volume > 2 * average_volume:
+            potential_movers.append(symbol)
+
+        # Example logic for price breakout
+        recent_close = price_data[-1]['close']
+        previous_high = max([day['high'] for day in price_data[-30:-1]])
+        if recent_close > previous_high:
+            potential_movers.append(symbol)
+
+    return potential_movers
+
+#Strategy for 10% Profit Trades:
+def setup_trade_orders(symbol, entry_price):
+    target_profit_price = entry_price * 1.10  # 10% profit target
+    stop_loss_price = entry_price * 0.95  # 5% stop loss to manage risk
+
+    # Logic to place orders, pseudo-code
+    print(f"Placing buy order for {symbol} at {entry_price}")
+    print(f"Setting sell target at {target_profit_price} and stop loss at {stop_loss_price}")
+
+"""
+Sentiment Analysis using CoinGeckoAPI:
+"""
+#Function for Fetching the latest top 10 coins by market cap:
+async def fetch_new_coins_info(vs_currency='usd'):
+    url = 'https://api.coingecko.com/api/v3/coins/markets'
+    params = {
+        'vs_currency': vs_currency,
+        'order': 'market_cap_desc',
+        'per_page': 10,
+        'page': 1,
+        'sparkline': "false",
+        'price_change_percentage': '24h'
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params) as response:
+            if response.status == 200:
+                data = await response.json()
+                return data
+            else:
+                print(f"Failed to fetch data: {response.status}")
+                return []
+
+
+
+async def get_new_coins_info(vs_currency='usd'): #interval_seconds=60 ,vs_currency='usd'
+    # Fetch the list of coins along with their data
+    coin_list = cg.get_coins_markets(vs_currency)
+    message_CoinGecko1 = "🔥 Top 10 Coins by Market Cap 🔥\n\n"
+    # Filter or process this data to identify new coins or specific information
+    for coin in coin_list[:10]:  # Assuming coin_list is sorted by market cap
+        # Convert market cap to billions and format with two decimal places
+        market_cap_billion = coin['market_cap'] / 1_000_000_000
+        formatted_market_cap = f"{market_cap_billion:,.2f} Billion USD"
+
+        # Format current price with thousands separator and two decimal places
+        formatted_price = f"${coin['current_price']:,.2f}"
+
+        # Construct the message line with emojis
+        message_line1 = (f"💰 Coin: {coin['id'].title()} (#{coin['symbol'].upper()})\n"
+                        f"💵 Current Price: {formatted_price}\n"
+                        f"📈 Market Cap: {formatted_market_cap}\n\n")
+
+        message_CoinGecko1 += message_line1
+    await send_telegram_message(message_CoinGecko1)
+
+async def fetch_and_compare_new_coins():
+    global previous_coin_data
+    new_coin_data = {}  # Temporary storage for this update cycle
+
+    new_coins_info = await fetch_new_coins_info()  # Fetch the latest top 10 coins
+
+    message_CoinGecko = "🔄 Top 10 🔥 Coins Update 🔄\n\n"
+    for coin in new_coins_info:
+        coin_id = coin['id']
+        new_market_cap = coin['market_cap'] / 1_000_000_000  # Convert to billions for readability
+        new_current_price = coin['current_price']
+
+        # Prepare message parts for market cap change and price change
+        market_cap_change_msg = ""
+        price_change_msg = ""
+
+        if coin_id in previous_coin_data:
+            # Calculate market cap change
+            market_cap_change = new_market_cap - previous_coin_data[coin_id]['market_cap']
+            market_cap_change_msg = f"(Δ {market_cap_change:,.2f} B)"
+
+            # Calculate price change
+            previous_price = previous_coin_data[coin_id]['current_price']
+            price_change = new_current_price - previous_price
+            price_change_percentage = (price_change / previous_price) * 100 if previous_price else 0
+            price_change_msg = f"(Δ {price_change_percentage:,.2f}%)"
+
+        message_CoinGecko += (f"💰 Coin: {coin['id'].title()} (#{coin['symbol'].upper()})\n"
+                              f"💵 Current Price: ${new_current_price:,.2f} {price_change_msg}\n"
+                              f"📈 Market Cap: {new_market_cap:,.2f} B {market_cap_change_msg}\n\n")
+
+        # Update the new_coin_data with the current coin's data for the next cycle
+        new_coin_data[coin_id] = {'market_cap': new_market_cap, 'current_price': new_current_price}
+
+    # Update previous_coin_data with the latest information for the next comparison
+    previous_coin_data = new_coin_data
+
+    # Send the update message
+    await send_telegram_message(message_CoinGecko)
+
+"""
+Short Time Trending Coins detection:
+"""
+"""# Function to fetch current trading volumes using Coingecko
+def fetch_current_volumes():
+    # This URL is just an example; you'll need to use the actual API endpoint from your data source
+    api_url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd'
+    response = requests.get(api_url)
+    data = response.json()
+    volumes = {coin['id']: coin['total_volume'] for coin in data}
+    return volumes"""
+
+
+
+exchange = ccxt.kucoin()
+markets = exchange.load_markets()
+tickers = exchange.fetch_tickers()
+top_movers = []
+
+
+async def fetch_short_time_market_data():
+    exchange = ccxt.kucoin({'enableRateLimit': True})
+
+    # Use run_in_executor to run the synchronous code in a separate thread
+    loop = asyncio.get_event_loop()
+    tickers = await loop.run_in_executor(None, exchange.fetch_tickers)
+
+    # Assuming a global dictionary to store the latest tickers
+    global latest_tickers
+    latest_tickers = tickers
+
+    # Print a summary of fetched tickers
+    print(f"Fetched {len(tickers)} tickers from KuCoin.")
+
+    # Optionally, print details for each ticker (limited to first 5 for brevity)
+    for i, (symbol, ticker) in enumerate(tickers.items()):
+        if i >= 5:  # Limit to first 5 tickers to avoid flooding the console
+            break
+        print(f"Symbol: {symbol}, Last Price: {ticker['last']}, 24h Volume: {ticker['quoteVolume']}")
+
+
+historical_prices = {}
+
+async def update_historical_prices():
+    global historical_prices
+    print("Updating historical prices...")
+    # Update historical prices with the latest data
+    for symbol, ticker in latest_tickers.items():
+        if symbol not in historical_prices:
+            historical_prices[symbol] = []
+        historical_prices[symbol].append({'timestamp': exchange.milliseconds(), 'price': ticker['last']})
+        # Simplify by keeping only relevant historical data points
+        # This is important to manage memory usage
+        historical_prices[symbol] = [price for price in historical_prices[symbol] if exchange.milliseconds() - price['timestamp'] < 24 * 3600 * 1000]
+
+    print(f"Updated historical prices for {historical_prices} symbols.")
+
+async def send_alert(message:str):
+    await send_telegram_message(message)
+
+async def check_price_alerts():
+    for symbol, prices in historical_prices.items():
+        if not prices:
+            continue
+        latest_price = latest_tickers[symbol]['last']
+        for price in prices:
+            time_diff = exchange.milliseconds() - price['timestamp']
+            price_change_pct = round(((latest_price - price['price']) / price['price']) * 100, 2)
+
+            # Customize your alert message based on the criteria
+            if time_diff <= 5 * 60 * 1000 and price_change_pct >= 3:
+                await send_alert(f"🚀 {symbol} just pumped {price_change_pct}% in the last 5 minutes! Check it out!")
+            elif time_diff <= 12 * 3600 * 1000 and price_change_pct >= 10:
+                await send_alert(f"💹 {symbol} has risen {price_change_pct}% in the last 12 hours. Worth a look!")
+            elif time_diff <= 24 * 3600 * 1000 and price_change_pct >= 100:
+                await send_alert(f"🎉 {symbol} skyrocketed {price_change_pct}% in the last 24 hours! Amazing gains!")
+
+async def scheduler():
+    while True:
+        await fetch_short_time_market_data()
+        await update_historical_prices()
+        await check_price_alerts()
+        await asyncio.sleep(120)  # 90-second interval for fetching market data
+
+
+
+#Set Interval for messages Function
+async def run_task_at_interval(task, interval_seconds):
+    while True:
+        await task()
+        await asyncio.sleep(interval_seconds)
+
+#Schedule regular Updates:
+async def scheduled_updates1(interval_seconds=60):
+    while True:
+        await send_top_movers_update()
+        await get_new_coins_info()
+        await fetch_and_compare_new_coins()
+        await asyncio.sleep(interval_seconds)
+
+async def scheduled_updates():
+    # Start the scheduler function independently as it has its own loop and timing
+    # asyncio.create_task(scheduler())
+
+    # Schedule each task with its specific interval
+    task1 = run_task_at_interval(send_top_movers_update, 600)  # Every 60 seconds 86400 24h
+    task2 = run_task_at_interval(get_new_coins_info, 1200)  # Every 125 seconds 86400 24h
+    task3 = run_task_at_interval(fetch_and_compare_new_coins, 3600)  # Every 3610 seconds 43200 12h
+    task4 = run_task_at_interval(scheduler,1200)
+    # Run all scheduled tasks concurrently
+    await asyncio.gather(task1, task2, task3, task4)
+
+
+
+if __name__ == "__main__":
+
+    asyncio.run(scheduled_updates())
